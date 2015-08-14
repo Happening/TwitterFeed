@@ -17,7 +17,6 @@ Util = require 'util'
 {tr} = require 'i18n'
 
 exports.render = !->
-	Dom.text 'x'
 	if postId = Page.state.get(0)
 		renderSinglePost postId, !!Page.state.get('focus')
 	else
@@ -122,63 +121,32 @@ renderSinglePost = (postId, startFocused = false) !->
 
 renderWall = !->
 
-	Obs.observe !->
-		# the random factor is to prevent everybody from fetching at the same time
-		newFetch = 180 + (Db.shared.get("lastFetch") || 0) + Math.random()*60
-		if Obs.timePassed(newFetch)
-			Server.sync "fetch", !->
-				Db.shared.set "lastFetch", (0|Plugin.time())
+	if !Db.shared.get("cfg","account")
+		Dom.text "Not configured yet."
+		return
 
 	Obs.observe !->
-		if Obs.timePassed(Db.shared.get("lastReceive") || 0)
-			Dom.div !->
-				# TODO: Insert some fancy spinner, or something
-				Dom.style margin: "15px"
-				Dom.text tr "Updating..."
+		# Make sure we subscribe at least once every 5m when people are watching, 
+		# but don't let all clients refresh the subscription at the same time.
+		subscribed = (Db.shared.get("subscribed") || 0) + 2.00 + Math.random()*8.0
+		if Obs.timePassed(subscribed)
+			Server.sync "subscribe", !->
+				Db.shared.set "subscribed", (0|Plugin.time())
 
 	Dom.style backgroundColor: '#f8f8f8'
-	addingPost = Obs.create 0
 
 	Dom.div !->
-		Dom.style Box: 'top', borderBottom: '1px solid #ebebeb', paddingBottom: '8px'
-
-		Ui.avatar Plugin.userAvatar(),
-			style: margin: '8px 0 0 0'
-			onTap: !-> Plugin.userInfo()
-
-		Dom.div !->
-			Dom.style Flex: 1, border: '1px solid #e0e0e0', borderBottom: '2px solid #e0e0e0', borderRadius: '2px', margin: '4px 4px 8px 8px', backgroundColor: '#fff'
-			addE = null
-			unclaimedPhoto = false
-			photoThumb = Obs.create false
-
-			containsUrl = Obs.create false
-			containsText = Obs.create false
-
-
-	Dom.div !->
-		# spinner when a new post is added
-		Obs.observe !->
-			maxId = 0|Db.shared.get 'maxId'
-			if addingPost.get()>maxId
-				Ui.item !->
-					Dom.style padding: '8px 4px', color: '#aaa'
-					Dom.div !->
-						Dom.style Box: 'center middle', width: '50px', height: '50px', marginRight: '10px'
-						Ui.spinner 24
-					Dom.text tr("Adding...")
-
 		postCnt = 0
 		empty = Obs.create(true)
 
 		if fv = Page.state.get('firstV')
 			firstV = Obs.create(fv)
 		else
-			firstV = Obs.create(-Math.max(1, (Db.shared.peek('maxId')||0)-20))
+			firstV = Obs.create(-Math.max(1, (Db.shared.peek('status','id')||0)-20))
 		lastV = Obs.create()
 			# firstV and lastV are inversed when they go into Loglist
 		Obs.observe !->
-			lastV.set -(Db.shared.get('maxId')||0)
+			lastV.set -(Db.shared.get('status','id')||0)
 
 		# list of all posts
 		Loglist.render lastV, firstV, (num) !->
@@ -227,21 +195,17 @@ renderPost = (post) !->
 			Dom.div !->
 				Dom.style Box: 'bottom', Flex: 1 ,margin: '4px 0'
 				Dom.div !->
-					Dom.style color: '#aaa', fontSize: '80%'
+					Dom.style color: '#aaa', fontSize: '85%'
 					Time.deltaText post.get('time'), 'short'
+					Dom.text " • "
+					Social.renderLike
+						path: [post.key()]
+						id: 'post'
+						aboutWhat: tr("post")
+						minimal: true
 
 				Dom.div !->
 					Dom.style Flex: 1, textAlign: 'right', paddingRight: '2px'
-
-					if commentCnt = Db.shared.get('comments', post.key(), 'max')
-						Dom.span !->
-							Dom.style display: 'inline-block', fontSize: '85%', color: '#aaa'
-							Icon.render
-								data: 'comments'
-								size: 16
-								color: '#aaa'
-								style: {verticalAlign: 'bottom', margin: '1px 2px 0 1px'}
-							Dom.span commentCnt
 
 					likeCnt = 0
 					likeCnt++ for k,v of Db.shared.get('likes', post.key()+'-post') when +k and v>0
@@ -254,6 +218,24 @@ renderPost = (post) !->
 								color: '#aaa'
 								style: {verticalAlign: 'bottom', margin: '0 2px 1px 8px'}
 							Dom.span likeCnt
+
+					commentCnt = Db.shared.get('comments', post.key(), 'max')
+					if commentCnt
+						Dom.span !->
+							Dom.style display: 'inline-block', fontSize: '85%', color: '#aaa'
+							Icon.render
+								data: 'comments'
+								size: 16
+								color: '#aaa'
+								style: {verticalAlign: 'bottom', margin: '1px 2px 0 8px'}
+							Dom.span commentCnt
+					else
+						Dom.span !->
+							Dom.style fontSize: '85%', borderRadius: '2px', padding: '7px', margin: '-7px -4px -7px 3px', color: Plugin.colors().highlight
+							Dom.text tr("Reply")
+							Dom.onTap !-> Page.nav
+								0: post.key()
+								focus: true
 
 					# unread bubble
 					Event.renderBubble [post.key()], style: margin: '-3px -6px -3px 8px'
@@ -268,36 +250,35 @@ renderPost = (post) !->
 			if url
 				renderAttachedUrl post
 			else if post.get 'photo'
-				key = post.get 'photo'
-				bgUrl = Photo.url key, 800
-				renderAttachedPhoto bgUrl, 68
+				bgUrl = post.get 'photo'
+				renderAttachedPhoto bgUrl
 
 		Dom.onTap !->
 			Page.nav post.key()
 
 
 
-renderAttachedPhoto = (bgUrl, margin, onTap) !->
+renderAttachedPhoto = (bgUrl, onTap) !->
 	vpWidth = Dom.viewport.get 'width'
 	vpHeight = Dom.viewport.get 'height'
-	width = vpWidth-margin
+	width = vpWidth
 	if width * (1/2) > vpHeight * (1/2.5)
 		height = 1/3 * vpHeight
 		width = (2/1) * height
-	else
-		height = (1/2) * width
 
 	Dom.div !->
-		Dom.style
-			borderRadius: '2px'
-			margin: if onTap then '0 8px 8px 8px' else '12px 0 8px 0'
-			width: Math.round(width)+'px'
-			height: Math.round(height)+'px'
-			backgroundImage: "url(#{bgUrl})"
-			backgroundSize: 'cover'
-			backgroundPosition: '50% 50%'
-		if onTap
-			Dom.onTap onTap
+		Dom.style maxWidth: width+'px'
+		Dom.div !->
+			Dom.style
+				borderRadius: '2px'
+				margin: if onTap then '0 0 8px 0' else '12px 0 8px 0'
+				width: '100%'
+				paddingBottom: '50%'
+				backgroundImage: "url(#{bgUrl})"
+				backgroundSize: 'cover'
+				backgroundPosition: '50% 50%'
+			if onTap
+				Dom.onTap onTap
 
 
 
@@ -347,12 +328,20 @@ renderAttachedUrl = (post) !->
 
 exports.renderSettings = !->
 
+	if Db.shared
+		Dom.text "It's not possible to change the Twitter account this plugin is showing. You could of course delete this plugin, and create a new instance."
+		return
+
 	cfg = Db.shared?.get('cfg') || {}
 
 	Form.input
-		name: "twitterName"
-		text: tr "Twitter display name"
-		value: cfg.twitterName
+		name: "account"
+		text: tr "Twitter account display name"
+		value: cfg.account
+
+	Form.condition (val) ->
+		tr("Account is required!") if !val.account
+
 		
 Dom.css
 	'.link-box.tap':
