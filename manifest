@@ -1,5 +1,4 @@
-name: Wall
-description: Post and talk about anything: status updates, photos, links to articles, etc
-icon: clock2
-store: 700
+name: Twitter
+description: View and discuss tweets from a single Twitter account.
+store: 0
 api: 2
