@@ -95,10 +95,23 @@ renderSinglePost = (postId, startFocused = false) !->
 		Dom.div !->
 			Dom.style
 				padding: '8px 8px 0 8px'
-				fontSize: '70%'
+				fontSize: '85%'
 				color: '#aaa'
-			Time.deltaText post.get('time')
 
+			Dom.span !->
+				Dom.style color: Plugin.colors().highlight, padding: '5px 6px', margin: '-3px -3px -3px -6px'
+				Icon.render
+					data: 'twitter'
+					size: 14
+					color: Plugin.colors().highlight
+					style:
+						margin: '2px 4px -2px 0'
+				Dom.text tr("View tweet")
+				Dom.onTap !->
+					Plugin.openUrl("https://twitter.com/#{Db.shared.get("cfg","account")}/status/#{post.get('tweet')}")
+			Dom.text " • "
+
+			Time.deltaText post.get('time')
 			Dom.text " • "
 			expanded = Social.renderLike
 				path: [postId]
@@ -118,6 +131,11 @@ renderSinglePost = (postId, startFocused = false) !->
 		Social.renderComments
 			path: [postId]
 			startFocused: startFocused
+
+	Dom.div !->
+		Dom.style color: '#aaa', fontSize: '75%', margin: '-4px 4px 4px 48px', textShadow: '0 1px 0 #fff', textAlign: 'right'
+		Dom.text tr("Comments are only visible in this happening")
+
 
 renderWall = !->
 
@@ -194,8 +212,15 @@ renderPost = (post) !->
 			# header with name, time, likes, comments and unreadbubble
 			Dom.div !->
 				Dom.style Box: 'bottom', Flex: 1 ,margin: '4px 0'
+				Icon.render
+					data: 'twitter'
+					size: 14
+					color: '#56a7e1'
+					style:
+						margin: '-2px 4px 2px 0'
 				Dom.div !->
 					Dom.style color: '#aaa', fontSize: '85%'
+					Dom.text " • "
 					Time.deltaText post.get('time'), 'short'
 					Dom.text " • "
 					Social.renderLike

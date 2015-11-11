@@ -7,17 +7,38 @@ Photo = require 'photo'
 Plugin = require 'plugin'
 Subscription = require 'subscription'
 
-pollTime = 60 # 60
-subscribeTime = 400 # 7200
+pollTime = 60
+subscribeTime = 7200
 
 pushSecret = 'bdgxfs$WCEF'
 
-exports.onInstall = exports.onUpgrade = (cfg) !->
+exports.onInstall = (cfg) !->
 	if account = cfg?.account
 		if account[0]=='@'
 			account = account.substr 1
+		cfg.account = account.toLowerCase()
 		Db.shared.set "cfg", cfg
 		subscribe()
+
+exports.onUpgrade = !->
+	account = Db.shared.get 'cfg', 'account'
+	if account
+		st = Db.shared.get 'status'
+		newId = st.id
+		while Db.shared.get(newId+1)
+			newId++
+		if st.id < newId
+			log 'writing new max id', newId
+			Db.shared.set 'status', 'id', newId
+
+		orSt = Db.origin.get 'cache', account, 'status'
+		if !orSt.id or newId > orSt.id
+			log 'writing new origin max id', newId
+			Db.origin.set 'cache', account, 'status', 'id', newId
+		if !orSt.tweet or st.tweet > orSt.tweet
+			log 'writing new origin tweet', st.tweet
+			Db.origin.set 'cache', account, 'status', 'tweet', st.tweet
+
 
 exports.client_subscribe = subscribe = !->
 
@@ -74,15 +95,15 @@ exports.handleTweets = (account,body) !->
 	newData = null
 	for i in [body.length-1..0] by -1
 		tweet = body[i]
-		if tweet.id <= cacheStatus.tweet
-			# the twitter api docs say this shouldn't happen, but it does
+		if tweet.id_str <= cacheStatus.tweet
+			# the twitter api docs say this shouldn't happen, but it does (fixed now by using id_str instead of id? --Jelmer)
 			continue
-		log 'tweet', tweet.id, tweet.text
-		cacheStatus.tweet = tweet.id
+		log 'tweet', tweet.id_str, tweet.text
+		cacheStatus.tweet = tweet.id_str
 		post =
 			time: 0 | ((new Date(tweet.created_at)).getTime()/1000)
 			text: tweet.text
-			tweet: tweet.id
+			tweet: tweet.id_str
 		if (photo = tweet.entities?.media?[0]) and photo.type=="photo"
 			post.photo = photo.media_url_https
 

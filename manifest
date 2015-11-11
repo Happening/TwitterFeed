@@ -1,4 +1,5 @@
-name: Twitter
+name: Twitter Feed
 description: View and discuss tweets from a single Twitter account.
-store: 0
+icon: twitter
+store: 600
 api: 2
