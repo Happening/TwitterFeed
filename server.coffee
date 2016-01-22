@@ -4,7 +4,7 @@ Http = require 'http'
 Timer = require 'timer'
 OAuth = require 'oauth'
 Photo = require 'photo'
-Plugin = require 'plugin'
+App = require 'app'
 Subscription = require 'subscription'
 
 pollTime = 60
@@ -19,6 +19,7 @@ exports.onInstall = (cfg) !->
 		cfg.account = account.toLowerCase()
 		Db.shared.set "cfg", cfg
 		subscribe()
+		App.setTitle "@#{account} tweets"
 
 exports.onUpgrade = !->
 	account = Db.shared.get 'cfg', 'account'
@@ -44,10 +45,10 @@ exports.client_subscribe = subscribe = !->
 
 	return unless account = Db.shared.get("cfg","account")
 
-	time = 0|Plugin.time()
+	time = 0|App.time()
 	Db.shared.set "subscribed", time
 
-	Db.origin.set "cache", account, "subs", Plugin.groupCode(), time
+	Db.origin.set "cache", account, "subs", App.groupCode(), time
 
 	if cacheStatus = Db.origin.get("cache", account, "status")
 		# tweet: newest tweet id
@@ -60,14 +61,14 @@ exports.client_subscribe = subscribe = !->
 			Db.shared.set maxId, Db.origin.get("cache", account, maxId)
 		Db.shared.set "status", cacheStatus
 
-		return if cacheStatus.fetch > Plugin.time()-pollTime*2 # recent enough
+		return if cacheStatus.fetch > App.time()-pollTime*2 # recent enough
 
 	# The last fetch is at least 120s ago, which means there's probably no master. Let's become one!
 	fetch account, cacheStatus?.tweet
 
 fetch = (account, lastTweet) !->
 	log 'fetch '+lastTweet
-	Db.origin.set "cache", account, "status", "fetch", (0|Plugin.time())
+	Db.origin.set "cache", account, "status", "fetch", (0|App.time())
 	request =
 		url: "https://api.twitter.com/1.1/statuses/user_timeline.json?screen_name=#{encodeURIComponent(account)}&count=15&include_rts=true&contributor_details=false&exclude_replies=true&trim_user=true" + (if lastTweet then "&since_id=#{encodeURIComponent lastTweet}" else "")
 		name: "handleTweets"
@@ -79,7 +80,7 @@ fetch = (account, lastTweet) !->
 exports.poll = poll = (account) !->
 	log 'poll'
 	cacheStatus = Db.origin.get "cache", account, "status"
-	if cacheStatus?.fetch >= Plugin.time()-(pollTime-1)
+	if cacheStatus?.fetch >= App.time()-(pollTime-1)
 		# There seems to be another master. Bail out.
 		return
 	fetch account, cacheStatus?.tweet
@@ -87,7 +88,7 @@ exports.poll = poll = (account) !->
 exports.handleTweets = (account,body) !->
 	log 'body', body.substr(0,400)
 
-	now = 0|Plugin.time()
+	now = 0|App.time()
 	cacheStatus = Db.origin.get("cache", account, "status") || {id:0}
 	cacheStatus.fetch = now
 
@@ -146,12 +147,8 @@ exports.onHttp = (request) !->
 		Db.shared.merge data
 		request.respond 'OK'
 
-exports.getTitle = -> # we implemented our own title input
-	if account = Db.shared.get("cfg", "account")
-		return "@#{account} tweets"
-
 exports.client_remove = (id) !->
-	return if Plugin.userId() isnt Db.shared.get(id, 'by') and !Plugin.userIsAdmin()
+	return if App.userId() isnt Db.shared.get(id, 'by') and !App.userIsAdmin()
 
 	# remove any associated photos
 	Photo.remove photo if photo = Db.shared.get(id, 'photo')
